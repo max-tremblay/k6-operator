@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 
 	"github.com/grafana/k6-operator/pkg/types"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -30,6 +31,13 @@ type PodMetadata struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 	Labels      map[string]string `json:"labels,omitempty"`
 }
+
+type JobRestartPolicy string
+
+const (
+	RestartPolicyOnFailure JobRestartPolicy = "OnFailure"
+	RestartPolicyNever     JobRestartPolicy = "Never"
+)
 
 type Pod struct {
 	Affinity                     *corev1.Affinity                  `json:"affinity,omitempty"`
@@ -52,6 +60,7 @@ type Pod struct {
 	InitContainers               []InitContainer                   `json:"initContainers,omitempty"`
 	Volumes                      []corev1.Volume                   `json:"volumes,omitempty"`
 	VolumeMounts                 []corev1.VolumeMount              `json:"volumeMounts,omitempty"`
+	RestartPolicy                *JobRestartPolicy                 `json:"restartPolicy,omitempty"`
 	PriorityClassName            string                            `json:"priorityClassName,omitempty"`
 }
 
@@ -88,6 +97,12 @@ type TestRunSpec struct {
 
 	// Parallelism shows the number of k6 runners.
 	Parallelism int32 `json:"parallelism"`
+
+	// Number of retries per job/runner created.
+	BackoffLimit int32 `json:"backoffLimit,omitempty"`
+
+	// Pod failure policy to handle retriable and non-retriable pod failures (what increases the counter of backoffLimit)
+	PodFailurePolicy batchv1.PodFailurePolicy `json:"podFailurePolicy,omitempty"`
 
 	// Separate is a quick way to run all k6 runners on different hostnames
 	// using the podAntiAffinity rule.

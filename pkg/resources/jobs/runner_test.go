@@ -311,7 +311,7 @@ func TestNewRunnerJob(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestNewRunnerJobNoisy(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -541,7 +541,7 @@ func TestNewRunnerJobUnpaused(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -657,7 +657,7 @@ func TestNewRunnerJobArguments(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -774,7 +774,7 @@ func TestNewRunnerJobServiceAccount(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -904,7 +904,7 @@ func TestNewRunnerJobIstio(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -1030,7 +1030,7 @@ func TestNewRunnerJobCloud(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", "").InjectValue("token"), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", "").InjectValue("token"), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -1143,7 +1143,7 @@ func TestNewRunnerJobLocalFile(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -1310,7 +1310,7 @@ func TestNewRunnerJobWithInitContainer(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -1509,7 +1509,7 @@ func TestNewRunnerJobWithVolume(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -1653,7 +1653,7 @@ func TestNewRunnerJobPLZTestRun(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}
@@ -1772,7 +1772,7 @@ func TestNewRunnerJobPriorityClassName(t *testing.T) {
 		},
 	}
 
-	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), nil)
+	job, err := NewRunnerJob(k6, 1, cloud.NewTokenInfo("", ""), &corev1.ConfigMap{})
 	if err != nil {
 		t.Errorf("NewRunnerJob errored, got: %v", err)
 	}

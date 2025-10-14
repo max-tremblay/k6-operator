@@ -24,10 +24,8 @@ import (
 	"time"
 
 	"go.k6.io/k6/cloudapi"
-	"golang.org/x/time/rate"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 
 	"github.com/go-logr/logr"
 	"github.com/grafana/k6-operator/api/v1alpha1"
@@ -55,7 +53,7 @@ type TestRequest struct {
 	TestRunName string
 	Url         string
 	Method      string
-	Retries     uint8
+	Retries     int8
 }
 
 // TestRunReconciler reconciles a K6 object
@@ -149,7 +147,7 @@ func (r *TestRunReconciler) httpWorker(id int) {
 
 func (r *TestRunReconciler) retryRequest(req TestRequest, reason string) {
 	if req.Retries >= 7 {
-		log.Printf("Max retries exceeded for %s with url %s: %s", req.TestRunName, req.Url, reason)
+		log.Printf("Max retries exceeded for %s: %s", req.TestRunName, reason)
 		return
 	}
 
@@ -166,9 +164,9 @@ func (r *TestRunReconciler) retryRequest(req TestRequest, reason string) {
 
 		select {
 		case r.testRequests <- request:
-			log.Printf("Requeued HTTP request for test %s for retry", request.TestRunName)
+			log.Printf("Requeued %s for retry", request.TestRunName)
 		default:
-			log.Printf("Queue full, dropping retry for test %s", request.TestRunName)
+			log.Printf("Queue full, dropping retry for %s", request.TestRunName)
 		}
 	}(req, backoff)
 }
@@ -476,16 +474,6 @@ func (r *TestRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: 5,
-			RateLimiter: workqueue.NewTypedMaxOfRateLimiter(
-				workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](
-					100*time.Millisecond, // baseDelay
-					1*time.Minute,        // maxDelay
-				),
-				// Rate limiter global (token bucket)
-				&workqueue.TypedBucketRateLimiter[reconcile.Request]{
-					Limiter: rate.NewLimiter(rate.Limit(50), 100),
-				},
-			),
 		}).
 		Complete(r)
 }

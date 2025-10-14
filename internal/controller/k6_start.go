@@ -176,7 +176,7 @@ func SendStartToHTTPWorker(r *TestRunReconciler, k6 *v1alpha1.TestRun, hostname 
 	case r.testRequests <- req:
 		log.Printf("Test %s: url %s queued", req.TestRunName, req.Url)
 	default:
-		log.Printf("Test %s: http request channel is full for url %s, this is not expected", req.TestRunName, req.Url)
+		log.Printf("Test %s: http request channel is full, this is not expected")
 	}
 
 	return nil

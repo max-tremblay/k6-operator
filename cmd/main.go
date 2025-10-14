@@ -20,6 +20,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"time"
 
 	controllers "github.com/grafana/k6-operator/internal/controller"
 	"github.com/grafana/k6-operator/pkg/plz"
@@ -28,6 +29,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -46,7 +48,6 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
 	utilruntime.Must(k6v1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -81,6 +82,9 @@ func main() {
 		LeaderElectionID:           "fcdfce80.io",
 		LeaderElectionResourceLock: "leases",
 		HealthProbeBindAddress:     healthAddr,
+		Cache: cache.Options{
+			SyncPeriod: ptr.To(2 * time.Minute),
+		},
 	}
 
 	if watchNamespaces, multiNamespaced := getWatchNamespaces(); multiNamespaced {
