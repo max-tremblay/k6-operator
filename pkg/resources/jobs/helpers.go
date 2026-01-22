@@ -148,3 +148,16 @@ func getInitContainers(pod *v1alpha1.Pod, script *types.Script) []corev1.Contain
 
 	return initContainers
 }
+
+func toJobRestartPolicy(p *v1alpha1.JobRestartPolicy) corev1.RestartPolicy {
+	if p == nil {
+		return corev1.RestartPolicyNever
+	}
+
+	switch *p {
+	case v1alpha1.RestartPolicyOnFailure:
+		return corev1.RestartPolicyOnFailure
+	default:
+		return corev1.RestartPolicyNever
+	}
+}

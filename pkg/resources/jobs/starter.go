@@ -43,7 +43,10 @@ func NewStarterJob(k6 *v1alpha1.TestRun, hostname []string) *batchv1.Job {
 	}
 
 	command, istioEnabled := newIstioCommand(k6.GetSpec().Scuttle.Enabled, []string{"sh", "-c"})
-	env := newIstioEnvVar(k6.GetSpec().Scuttle, istioEnabled)
+	env := append(
+		newIstioEnvVar(k6.GetSpec().Scuttle, istioEnabled),
+		k6.GetSpec().Starter.Env...,
+	)
 
 	// Default resource requests and limits to use as a fallback
 	resourceRequirements := corev1.ResourceRequirements{

@@ -205,7 +205,7 @@ func NewRunnerJob(k6 *v1alpha1.TestRun, index int, tokenInfo *cloud.TokenInfo, s
 					AutomountServiceAccountToken: &automountServiceAccountToken,
 					ServiceAccountName:           serviceAccountName,
 					Hostname:                     name,
-					RestartPolicy:                corev1.RestartPolicyNever,
+					RestartPolicy:                toJobRestartPolicy(k6.GetSpec().Runner.RestartPolicy),
 					Affinity:                     k6.GetSpec().Runner.Affinity,
 					NodeSelector:                 k6.GetSpec().Runner.NodeSelector,
 					Tolerations:                  k6.GetSpec().Runner.Tolerations,
