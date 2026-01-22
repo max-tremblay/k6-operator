@@ -6153,6 +6153,10 @@ spec:
                 type: string
               token:
                 type: string
+              useDirectPodIP:
+                type: boolean
+              useLegacyStarter:
+                type: boolean
             required:
             - parallelism
             - script
