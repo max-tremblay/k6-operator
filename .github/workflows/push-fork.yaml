@@ -3,11 +3,14 @@ name: "Release k6-operator - Forked"
 permissions: {}
 
 on:
+  push:
+    branches:
+      - feat/*
   workflow_dispatch:
     inputs:
       image_tag:
         description: "Image tag name."
-        required: true
+        required: false
   release:
     types:
       - published
