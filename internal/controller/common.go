@@ -126,29 +126,49 @@ func getEnvVar(vars []corev1.EnvVar, name string) string {
 	return ""
 }
 
-func (r *TestRunReconciler) hostnames(ctx context.Context, log logr.Logger, abortOnUnready bool, opts *client.ListOptions) ([]string, error) {
+func (r *TestRunReconciler) hostnames(ctx context.Context, log logr.Logger, abortOnUnready bool, k6 *v1alpha1.TestRun, opts *client.ListOptions) ([]string, error) {
 	var (
 		hostnames []string
 		err       error
 	)
 
-	sl := &corev1.ServiceList{}
+	if k6.GetSpec().UseDirectPodIPs {
+		pl := &corev1.PodList{}
+		if err = r.List(ctx, pl, opts); err != nil {
+			log.Error(err, "Could not list pods")
+			return nil, err
+		}
 
-	if err = r.List(ctx, sl, opts); err != nil {
-		log.Error(err, "Could not list services")
-		return nil, err
-	}
+		for _, pod := range pl.Items {
+			if pod.Status.PodIP == "" {
+				err = fmt.Errorf("pod %s doesn't have an IP assigned", pod.Name)
+				log.Info(err.Error())
+				if abortOnUnready {
+					return nil, err
+				}
+				continue
+			}
+			hostnames = append(hostnames, pod.Status.PodIP)
+		}
+	} else {
+		sl := &corev1.ServiceList{}
 
-	for _, service := range sl.Items {
-		log.Info(fmt.Sprintf("Checking service %s", service.Name))
-		if isServiceReady(log, &service) {
-			log.Info(fmt.Sprintf("%v service is ready", service.Name))
-			hostnames = append(hostnames, service.Spec.ClusterIP)
-		} else {
-			err = fmt.Errorf("%v service is not ready", service.Name)
-			log.Info(err.Error())
-			if abortOnUnready {
-				return nil, err
+		if err = r.List(ctx, sl, opts); err != nil {
+			log.Error(err, "Could not list services")
+			return nil, err
+		}
+
+		for _, service := range sl.Items {
+			log.Info(fmt.Sprintf("Checking service %s", service.Name))
+			if isServiceReady(log, &service) {
+				log.Info(fmt.Sprintf("%v service is ready", service.Name))
+				hostnames = append(hostnames, service.Spec.ClusterIP)
+			} else {
+				err = fmt.Errorf("%v service is not ready", service.Name)
+				log.Info(err.Error())
+				if abortOnUnready {
+					return nil, err
+				}
 			}
 		}
 	}

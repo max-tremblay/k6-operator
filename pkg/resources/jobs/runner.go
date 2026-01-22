@@ -17,7 +17,7 @@ import (
 
 // NewRunnerJob creates a new k6 job from a CRD
 // secretName is the name of the Secret with Cloud token, which must be in the same namespace.
-func NewRunnerJob(k6 *v1alpha1.TestRun, index int, tokenInfo *cloud.TokenInfo) (*batchv1.Job, error) {
+func NewRunnerJob(k6 *v1alpha1.TestRun, index int, tokenInfo *cloud.TokenInfo, segmentConfigMap *corev1.ConfigMap) (*batchv1.Job, error) {
 	name := fmt.Sprintf("%s-%d", k6.NamespacedName().Name, index)
 	postCommand := []string{"k6", "run"}
 
@@ -32,15 +32,23 @@ func NewRunnerJob(k6 *v1alpha1.TestRun, index int, tokenInfo *cloud.TokenInfo) (
 		command = append(command, "--quiet")
 	}
 
-	if k6.GetSpec().Parallelism > 1 {
-		var args []string
+	if segmentConfigMap != nil {
+		var args string
 		var err error
 
-		if args, err = segmentation.NewCommandFragments(index, int(k6.GetSpec().Parallelism)); err != nil {
-			return nil, err
+		parallelism := int(k6.GetSpec().Parallelism)
 
+		if args, err = segmentation.NewCommandSegment(index, parallelism); err != nil {
+			return nil, err
 		}
-		command = append(command, args...)
+
+		var configFileName string
+
+		for configFileName, _ = range segmentConfigMap.Data {
+			break
+		}
+
+		command = append(command, args, fmt.Sprintf("--config /config/%s", configFileName))
 	}
 
 	script, err := k6.GetSpec().ParseScript()
@@ -159,6 +167,25 @@ func NewRunnerJob(k6 *v1alpha1.TestRun, index int, tokenInfo *cloud.TokenInfo) (
 
 	volumeMounts := script.VolumeMount()
 	volumeMounts = append(volumeMounts, k6.GetSpec().Runner.VolumeMounts...)
+
+	if segmentConfigMap != nil {
+		segmentationVolumeName := "config-json"
+		volumes = append(volumes, corev1.Volume{
+			Name: segmentationVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: segmentConfigMap.Name,
+					},
+				},
+			},
+		})
+
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      segmentationVolumeName,
+			MountPath: "/config",
+		})
+	}
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{

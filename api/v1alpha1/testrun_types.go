@@ -129,6 +129,12 @@ type TestRunSpec struct {
 
 	// Token is reserved by Grafana Cloud k6. Do not set it manually.
 	Token string `json:"token,omitempty"` // PLZ reserved field (for now)
+
+	// If we have to use the legacy starter by using a separated job or not
+	UseLegacyStarter bool `json:"useLegacyStarter,omitempty"`
+
+	// Avoid the creation of services and launch K6 pods using their IPs
+	UseDirectPodIPs bool `json:"useDirectPodIP,omitempty"`
 }
 
 // K6Script describes where to find the k6 script.

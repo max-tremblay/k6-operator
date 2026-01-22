@@ -2,8 +2,10 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -27,8 +29,8 @@ func isServiceReady(log logr.Logger, service *v1.Service) bool {
 	return resp.StatusCode < 400
 }
 
-// StartJobs in the Ready phase using a curl container
-func StartJobs(ctx context.Context, log logr.Logger, k6 *v1alpha1.TestRun, r *TestRunReconciler) (res ctrl.Result, err error) {
+// Start in the Ready phase using a curl container
+func Start(ctx context.Context, log logr.Logger, k6 *v1alpha1.TestRun, r *TestRunReconciler) (res ctrl.Result, err error) {
 	// It may take some time to get Services up, so check in frequently
 	res = ctrl.Result{RequeueAfter: time.Second}
 
@@ -78,17 +80,16 @@ func StartJobs(ctx context.Context, log logr.Logger, k6 *v1alpha1.TestRun, r *Te
 		return res, nil
 	}
 
-	// services
+	var hostnames []string
 
-	log.Info("Waiting for services to get ready")
-
-	hostnames, err := r.hostnames(ctx, log, true, opts)
-	log.Info(fmt.Sprintf("err: %v, hostnames: %v", err, hostnames))
+	hostnames, err = r.hostnames(ctx, log, true, k6, opts)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	log.Info(fmt.Sprintf("%d/%d services ready", len(hostnames), k6.GetSpec().Parallelism))
+	if !k6.GetSpec().UseDirectPodIPs {
+		log.Info(fmt.Sprintf("%d/%d services ready", len(hostnames), k6.GetSpec().Parallelism))
+	}
 
 	// setup
 
@@ -109,21 +110,25 @@ func StartJobs(ctx context.Context, log logr.Logger, k6 *v1alpha1.TestRun, r *Te
 	}
 
 	// starter
+	if !k6.GetSpec().UseLegacyStarter { // From the operator
+		if err = StartK6FromOperators(log, k6, r, &hostnames); err != nil {
+			log.Error(err, "Failed to start k6 test from the operator")
+			return res, nil
+		}
+	} else {
+		starter := jobs.NewStarterJob(k6, hostnames)
 
-	starter := jobs.NewStarterJob(k6, hostnames)
+		if err = ctrl.SetControllerReference(k6, starter, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference for the start job")
+		}
 
-	if err = ctrl.SetControllerReference(k6, starter, r.Scheme); err != nil {
-		log.Error(err, "Failed to set controller reference for the start job")
+		// TODO: add a check for existence of starter job
+		if err = r.Create(ctx, starter); err != nil {
+			log.Error(err, "Failed to launch k6 test starter")
+			return res, nil
+		}
+		log.Info("Created starter job")
 	}
-
-	// TODO: add a check for existence of starter job
-
-	if err = r.Create(ctx, starter); err != nil {
-		log.Error(err, "Failed to launch k6 test starter")
-		return res, nil
-	}
-
-	log.Info("Created starter job")
 
 	log.Info("Changing stage of TestRun status to started")
 	k6.GetStatus().Stage = "started"
@@ -135,4 +140,61 @@ func StartJobs(ctx context.Context, log logr.Logger, k6 *v1alpha1.TestRun, r *Te
 		return ctrl.Result{Requeue: true}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+func SendStartToHTTPWorker(r *TestRunReconciler, k6 *v1alpha1.TestRun, hostname string) (err error) {
+	// TODO: remove port number which is hardcoded
+	url := fmt.Sprintf("http://%s:%s/v1/status", hostname, "6565")
+
+	// Port is hardcoded in the main k6-operator code
+	payload := map[string]interface{}{
+		"data": map[string]interface{}{
+			"attributes": map[string]bool{
+				"paused":  false,
+				"stopped": false,
+			},
+			"id":   "default",
+			"type": "status",
+		},
+	}
+
+	jsonData, err := json.Marshal(payload)
+
+	if err != nil {
+		return err
+	}
+
+	req := TestRequest{
+		Namespace:   k6.Namespace,
+		Payload:     jsonData,
+		TestRunName: k6.Name,
+		Method:      http.MethodPatch,
+		Url:         url,
+	}
+
+	select {
+	case r.testRequests <- req:
+		log.Printf("Test %s: url %s queued", req.TestRunName, req.Url)
+	default:
+		log.Printf("Test %s: http request channel is full for url %s, this is not expected", req.TestRunName, req.Url)
+	}
+
+	return nil
+}
+
+func StartK6FromOperators(log logr.Logger, k6 *v1alpha1.TestRun, r *TestRunReconciler, hostnames *[]string) error {
+	log.Info("Starting k6 agents", "total", len(*hostnames))
+
+	var errs []error
+	for _, hostname := range *hostnames {
+		if err := SendStartToHTTPWorker(r, k6, hostname); err != nil {
+			log.Error(err, "Failed to start k6 agent", "hostname", hostname)
+			errs = append(errs, fmt.Errorf("failed to start agent on %s: %w", hostname, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to start %d/%d agents: %v", len(errs), len(*hostnames), errs)
+	}
+	return nil
 }

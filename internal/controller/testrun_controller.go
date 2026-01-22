@@ -15,14 +15,19 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
 	"time"
 
 	"go.k6.io/k6/cloudapi"
+	"golang.org/x/time/rate"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 
 	"github.com/go-logr/logr"
 	"github.com/grafana/k6-operator/api/v1alpha1"
@@ -44,6 +49,15 @@ const (
 	k6CrLabelName = "k6_cr"
 )
 
+type TestRequest struct {
+	Namespace   string
+	Payload     []byte
+	TestRunName string
+	Url         string
+	Method      string
+	Retries     uint8
+}
+
 // TestRunReconciler reconciles a K6 object
 type TestRunReconciler struct {
 	client.Client
@@ -53,6 +67,8 @@ type TestRunReconciler struct {
 	// Note: here we assume that all users of the operator are allowed to use
 	// the same token / cloud client.
 	k6CloudClient *cloudapi.Client
+
+	testRequests chan TestRequest
 }
 
 // Reconcile takes a K6 object and takes the appropriate action in the cluster
@@ -92,6 +108,69 @@ func (r *TestRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 func isCloudTestRun(k6 *v1alpha1.TestRun) bool {
 	return v1alpha1.IsTrue(k6, v1alpha1.CloudTestRun) || v1alpha1.IsTrue(k6, v1alpha1.CloudPLZTestRun)
+}
+
+func (r *TestRunReconciler) httpWorker(id int) {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+
+	for req := range r.testRequests {
+		httpReq, err := http.NewRequest(req.Method, req.Url, bytes.NewReader(req.Payload))
+
+		if err != nil {
+			log.Printf("Worker %d: failed to create request for url %s: %v", id, req.Url, err)
+			continue
+		}
+
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(httpReq)
+
+		if err != nil {
+			r.retryRequest(req, fmt.Sprintf("Worker %d: Error with http client: %v", id, err))
+			continue
+		}
+
+		resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			r.retryRequest(req, fmt.Sprintf("Worker %d: got status %d", id, resp.StatusCode))
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (r *TestRunReconciler) retryRequest(req TestRequest, reason string) {
+	if req.Retries >= 7 {
+		log.Printf("Max retries exceeded for %s with url %s: %s", req.TestRunName, req.Url, reason)
+		return
+	}
+
+	req.Retries++
+
+	// Exponential backoff: 2s, 4s, 8s,  [...] 256s
+	backoff := time.Duration(1<<req.Retries) * time.Second
+
+	log.Printf("Retrying %s in %v (attempt %d/7)", req.TestRunName, backoff, req.Retries)
+
+	// Asynchrone retry avec backoff
+	go func(request TestRequest, delay time.Duration) {
+		time.Sleep(delay)
+
+		select {
+		case r.testRequests <- request:
+			log.Printf("Requeued HTTP request for test %s for retry", request.TestRunName)
+		default:
+			log.Printf("Queue full, dropping retry for test %s", request.TestRunName)
+		}
+	}(req, backoff)
 }
 
 func (r *TestRunReconciler) reconcile(ctx context.Context, req ctrl.Request, log logr.Logger, k6 *v1alpha1.TestRun) (ctrl.Result, error) {
@@ -212,7 +291,7 @@ func (r *TestRunReconciler) reconcile(ctx context.Context, req ctrl.Request, log
 		return CreateJobs(ctx, log, k6, r)
 
 	case "created":
-		return StartJobs(ctx, log, k6, r)
+		return Start(ctx, log, k6, r)
 
 	case "started":
 		if v1alpha1.IsTrue(k6, v1alpha1.CloudTestRun) && v1alpha1.IsTrue(k6, v1alpha1.CloudTestRunFinalized) {
@@ -237,7 +316,7 @@ func (r *TestRunReconciler) reconcile(ctx context.Context, req ctrl.Request, log
 
 				// The test run reached a regular stop in execution so execute teardown
 				if v1alpha1.IsFalse(k6, v1alpha1.CloudTestRunAborted) && allJobsStopped {
-					hostnames, err := r.hostnames(ctx, log, false, k6.ListOptions())
+					hostnames, err := r.hostnames(ctx, log, false, k6, k6.ListOptions())
 					if err != nil {
 						return ctrl.Result{}, nil
 					}
@@ -359,6 +438,17 @@ func (r *TestRunReconciler) reconcile(ctx context.Context, req ctrl.Request, log
 
 // SetupWithManager sets up a managed controller that will reconcile all events for the K6 CRD
 func (r *TestRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Keep it large
+	r.testRequests = make(chan TestRequest, 100000)
+
+	// Worker pool
+	// If each request takes ~100ms, 50 workers = 500 req/sec
+	numWorkers := 50
+
+	for i := 0; i < numWorkers; i++ {
+		go r.httpWorker(i)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.TestRun{}).
 		Owns(&batchv1.Job{}).
@@ -374,17 +464,28 @@ func (r *TestRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 						{NamespacedName: types.NamespacedName{
 							Name:      k6CrName,
 							Namespace: object.GetNamespace(),
-						}}}
+						}},
+					}
 				}),
 			builder.WithPredicates(predicate.NewPredicateFuncs(
 				func(object client.Object) bool {
 					pod := object.(*v1.Pod)
 					_, ok := pod.GetLabels()[k6CrLabelName]
 					return ok
-				}))).
+				})),
+		).
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 1,
-			// RateLimiter - ?
+			MaxConcurrentReconciles: 5,
+			RateLimiter: workqueue.NewTypedMaxOfRateLimiter(
+				workqueue.NewTypedItemExponentialFailureRateLimiter[reconcile.Request](
+					100*time.Millisecond, // baseDelay
+					1*time.Minute,        // maxDelay
+				),
+				// Rate limiter global (token bucket)
+				&workqueue.TypedBucketRateLimiter[reconcile.Request]{
+					Limiter: rate.NewLimiter(rate.Limit(50), 100),
+				},
+			),
 		}).
 		Complete(r)
 }

@@ -2,7 +2,9 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -12,9 +14,17 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
+
+func newLabels(name string) map[string]string {
+	return map[string]string{
+		"app":   "k6",
+		"k6_cr": name,
+	}
+}
 
 // CreateJobs creates jobs that will spawn k6 pods for distributed test
 func CreateJobs(ctx context.Context, log logr.Logger, k6 *v1alpha1.TestRun, r *TestRunReconciler) (ctrl.Result, error) {
@@ -88,15 +98,56 @@ func createJobSpecs(ctx context.Context, log logr.Logger, k6 *v1alpha1.TestRun, 
 		return ctrl.Result{}, false, err
 	}
 
+	var segmentConfigmap *corev1.ConfigMap
+	var err error
+
+	if segmentConfigmap = newSharedRunnedConfigmap(k6); segmentConfigmap != nil {
+		if err = ctrl.SetControllerReference(k6, segmentConfigmap, r.Scheme); err != nil {
+			return ctrl.Result{}, false, err
+		}
+		if err = r.Create(ctx, segmentConfigmap); err != nil {
+			return ctrl.Result{}, false, err
+		}
+	}
+
 	for i := 1; i <= int(k6.GetSpec().Parallelism); i++ {
-		if err := launchTest(ctx, k6, i, log, r, tokenInfo); err != nil {
+		if err := launchTest(ctx, k6, i, log, r, tokenInfo, segmentConfigmap); err != nil {
 			return ctrl.Result{}, false, err
 		}
 	}
 	return ctrl.Result{}, false, nil
 }
 
-func launchTest(ctx context.Context, k6 *v1alpha1.TestRun, index int, log logr.Logger, r *TestRunReconciler, tokenInfo *cloud.TokenInfo) error {
+func newSharedRunnedConfigmap(k6 *v1alpha1.TestRun) *corev1.ConfigMap {
+	total := int(k6.GetSpec().Parallelism)
+
+	if total <= 1 {
+		return nil
+	}
+
+	executionSegmentSequence := []string{}
+
+	for i := 1; i < total; i++ {
+		executionSegmentSequence = append(executionSegmentSequence, fmt.Sprintf("%d/%d", i, total))
+	}
+
+	jsonData, _ := json.Marshal(map[string]interface{}{
+		"executionSegmentSequence": fmt.Sprintf("0,%s,1", strings.Join(executionSegmentSequence, ",")),
+	})
+
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s", k6.NamespacedName().Name),
+			Namespace: k6.NamespacedName().Namespace,
+			Labels:    newLabels(k6.NamespacedName().Name),
+		},
+		Data: map[string]string{
+			"config.json": string(jsonData),
+		},
+	}
+}
+
+func launchTest(ctx context.Context, k6 *v1alpha1.TestRun, index int, log logr.Logger, r *TestRunReconciler, tokenInfo *cloud.TokenInfo, segmentConfigMap *corev1.ConfigMap) error {
 	var job *batchv1.Job
 	var service *corev1.Service
 	var err error
@@ -104,7 +155,7 @@ func launchTest(ctx context.Context, k6 *v1alpha1.TestRun, index int, log logr.L
 	msg := fmt.Sprintf("Launching k6 test #%d", index)
 	log.Info(msg)
 
-	if job, err = jobs.NewRunnerJob(k6, index, tokenInfo); err != nil {
+	if job, err = jobs.NewRunnerJob(k6, index, tokenInfo, segmentConfigMap); err != nil {
 		log.Error(err, "Failed to generate k6 test job")
 		return err
 	}
@@ -122,19 +173,21 @@ func launchTest(ctx context.Context, k6 *v1alpha1.TestRun, index int, log logr.L
 		return err
 	}
 
-	if service, err = jobs.NewRunnerService(k6, index); err != nil {
-		log.Error(err, "Failed to generate k6 test service")
-		return err
-	}
+	if !k6.GetSpec().UseDirectPodIPs {
+		if service, err = jobs.NewRunnerService(k6, index); err != nil {
+			log.Error(err, "Failed to generate k6 test service")
+			return err
+		}
 
-	if err = ctrl.SetControllerReference(k6, service, r.Scheme); err != nil {
-		log.Error(err, "Failed to set controller reference for service")
-		return err
-	}
+		if err = ctrl.SetControllerReference(k6, service, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference for service")
+			return err
+		}
 
-	if err = r.Create(ctx, service); err != nil {
-		log.Error(err, "Failed to launch k6 test services")
-		return err
+		if err = r.Create(ctx, service); err != nil {
+			log.Error(err, "Failed to launch k6 test services")
+			return err
+		}
 	}
 
 	return nil
