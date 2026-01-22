@@ -1,5 +1,5 @@
 ---
-name: "Release k6-operator"
+name: "Release k6-operator - Forked"
 permissions: {}
 
 on:
