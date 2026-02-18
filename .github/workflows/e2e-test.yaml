@@ -14,20 +14,18 @@ jobs:
         with:
           persist-credentials: false
       - name: "Build:buildx"
-        # this is v3.10.0
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2
+        uses: docker/setup-buildx-action@7c525be6cc8a882d5163ce04293cac18617c709f
         with:
-          version: v0.9.1 # Buildx version
+          cache-binary: false
+          version: v0.31.1 # Buildx version
       - name: "Build:login"
-        # this is v3.4.0
-        uses: docker/login-action@28fdb31ff34708d19615a74d67103ddc2ea9725c
+        uses: docker/login-action@3227f5311cb93ffd14d13e65d8cc400d30f4dd8a
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: "Build:dockerimage"
-        # this is v6.16.0
-        uses: docker/build-push-action@64c9b141502b80dbbd71e008a0130ad330f480f8
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           file: Dockerfile.controller
@@ -55,8 +53,7 @@ jobs:
           cd config/default && kustomize build . > ../../rendered.yaml
 
       - name: Create kind cluster
-        # this is v1.12.0
-        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:
           node_image: "kindest/node:v1.27.1"
 
@@ -93,8 +90,7 @@ jobs:
           version: v3.7.2
 
       - name: Create kind cluster
-        # this is v1.12.0
-        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:
           node_image: "kindest/node:v1.27.1"
 
