@@ -455,7 +455,7 @@ func (r *TestRunReconciler) reconcile(ctx context.Context, req ctrl.Request, log
 // SetupWithManager sets up a managed controller that will reconcile all events for the K6 CRD
 func (r *TestRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Keep it large
-	r.testRequests = make(chan TestRequest, 100000)
+	r.testRequests = make(chan TestRequest)
 
 	// Worker pool
 	// If each request takes ~100ms, 50 workers = 500 req/sec
